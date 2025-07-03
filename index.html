@@ -8,9 +8,19 @@
     href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css"
     rel="stylesheet"
   />
+  <style>
+    #loadingMessage, #errorMessage {
+      margin-top: 1rem;
+      font-style: italic;
+      color: #bbb;
+    }
+    #errorMessage {
+      color: #f87171; /* Tailwind red-400 */
+    }
+  </style>
 </head>
 <body class="bg-gray-900 text-white min-h-screen">
-  <div class="container mx-auto p-6 max-w-4xl">
+  <div class="container mx-auto p-6">
     <h1 class="text-3xl font-bold mb-6">ModBuddy Web Dashboard</h1>
 
     <div id="authSection" class="mb-4">
@@ -25,53 +35,57 @@
       <div class="mb-6">
         <h2 class="text-xl font-semibold">Your Servers with Bot</h2>
         <div id="guildList" class="mt-2 space-y-4"></div>
-        <div id="noGuilds" class="hidden mt-4 text-center text-gray-400">
+        <div id="loadingMessage" class="hidden">Loading servers...</div>
+        <div id="errorMessage" class="hidden"></div>
+        <div id="noGuilds" class="hidden mt-4 text-center">
           <p>No servers found. <a id="inviteLink" href="#" class="text-blue-400 underline hover:text-blue-600" target="_blank" rel="noopener noreferrer">Add bot to your server?</a></p>
         </div>
       </div>
 
-      <div id="guildDetails" class="hidden bg-gray-800 rounded p-4 shadow-lg">
-        <h3 class="text-lg font-bold mb-4">
+      <div id="guildDetails" class="hidden">
+        <h3 class="text-lg font-bold">
           Server Dashboard: <span id="serverName"></span>
         </h3>
 
-        <div class="mb-6">
-          <h4 class="font-semibold mb-2">⚙️ Settings</h4>
-          <label class="flex items-center cursor-pointer">
-            <input type="checkbox" id="slurFilter" class="mr-2" />
-            Racial Slur Filter
-          </label>
+        <div class="mt-4">
+          <h4 class="font-semibold">⚙️ Settings</h4>
+          <div class="space-y-2 mt-2">
+            <label class="flex items-center cursor-pointer">
+              <input type="checkbox" id="slurFilter" class="mr-2" />
+              Racial Slur Filter
+            </label>
+          </div>
         </div>
 
-        <div class="mb-6">
-          <h4 class="font-semibold mb-2">📋 Moderation Logs</h4>
+        <div class="mt-6">
+          <h4 class="font-semibold">📋 Moderation Logs</h4>
           <ul
             id="modLogs"
-            class="list-disc pl-5 max-h-48 overflow-auto text-sm"
+            class="mt-2 list-disc pl-4 text-sm max-h-48 overflow-auto"
           ></ul>
         </div>
 
-        <div>
-          <h4 class="font-semibold mb-2">👥 Manage Moderators</h4>
-          <ul id="modList" class="mb-2 text-sm space-y-1 max-h-32 overflow-auto"></ul>
+        <div class="mt-6">
+          <h4 class="font-semibold">👥 Manage Moderators</h4>
+          <ul id="modList" class="mt-2 text-sm space-y-1"></ul>
 
           <input
             id="modUserId"
             type="text"
             placeholder="User ID to add/remove"
-            class="w-full max-w-xs px-3 py-2 text-black rounded"
+            class="mt-2 px-2 py-1 text-black w-full max-w-xs"
           />
           <div class="space-x-2 mt-2">
             <button
               id="addModBtn"
-              class="bg-green-500 hover:bg-green-600 px-4 py-2 rounded disabled:opacity-50"
+              class="bg-green-500 hover:bg-green-600 px-3 py-1 rounded disabled:opacity-50"
               disabled
             >
               Add
             </button>
             <button
               id="removeModBtn"
-              class="bg-red-500 hover:bg-red-600 px-4 py-2 rounded disabled:opacity-50"
+              class="bg-red-500 hover:bg-red-600 px-3 py-1 rounded disabled:opacity-50"
               disabled
             >
               Remove
@@ -90,10 +104,17 @@
     let currentGuild = null;
     let moderators = [];
 
+    // Check if user has manage server permission or is owner
     function hasManageGuild(permissions, owner) {
       return owner || (permissions & 0x20) === 0x20;
     }
 
+    // Show/hide element helper
+    function show(el, val = true) {
+      el.classList.toggle("hidden", !val);
+    }
+
+    // Fetch user's guilds
     async function fetchUserGuilds() {
       const res = await fetch("https://discord.com/api/users/@me/guilds", {
         headers: { Authorization: `Bearer ${accessToken}` },
@@ -102,25 +123,28 @@
       return await res.json();
     }
 
+    // Fetch bot guilds from your backend API
     async function fetchBotGuilds() {
+      // Expects an endpoint returning array of guild IDs your bot is in
       const res = await fetch(`${apiBase}/bot/guilds`);
       if (!res.ok) throw new Error("Failed to fetch bot guilds");
-      return await res.json();
+      return await res.json(); // Array of guild IDs (strings)
     }
 
+    // Render guilds that user manages AND bot is in
     async function renderGuilds(userGuilds, botGuildIds) {
       const list = document.getElementById("guildList");
       const noGuilds = document.getElementById("noGuilds");
+
       list.innerHTML = "";
-      let filteredGuilds = userGuilds.filter(
+      const filteredGuilds = userGuilds.filter(
         (g) => hasManageGuild(g.permissions, g.owner) && botGuildIds.includes(g.id)
       );
 
       if (filteredGuilds.length === 0) {
-        noGuilds.classList.remove("hidden");
-        document.getElementById("inviteLink").href = botInviteURL;
+        show(noGuilds, true);
       } else {
-        noGuilds.classList.add("hidden");
+        show(noGuilds, false);
         filteredGuilds.forEach((g) => {
           const div = document.createElement("div");
           div.className =
@@ -132,6 +156,7 @@
       }
     }
 
+    // Load dashboard for a selected guild
     async function loadGuildDashboard(guild) {
       currentGuild = guild;
       document.getElementById("guildDetails").classList.remove("hidden");
@@ -145,8 +170,10 @@
 
       moderators = mods || [];
 
+      // Set toggle from settings
       document.getElementById("slurFilter").checked = settings.racialFilter || false;
 
+      // Show mod logs
       const logsList = document.getElementById("modLogs");
       logsList.innerHTML = "";
       logs.forEach((log) => {
@@ -155,6 +182,7 @@
         logsList.appendChild(item);
       });
 
+      // Show moderators list
       const modList = document.getElementById("modList");
       modList.innerHTML = "";
       moderators.forEach((modId) => {
@@ -163,6 +191,7 @@
         modList.appendChild(item);
       });
 
+      // Enable/disable buttons based on input
       const modUserIdInput = document.getElementById("modUserId");
       const addBtn = document.getElementById("addModBtn");
       const removeBtn = document.getElementById("removeModBtn");
@@ -176,6 +205,7 @@
       modUserIdInput.oninput = updateButtons;
       updateButtons();
 
+      // Update setting on toggle change
       document.getElementById("slurFilter").onchange = () => {
         fetch(`${apiBase}/${guild.id}/settings`, {
           method: "POST",
@@ -186,6 +216,7 @@
         });
       };
 
+      // Add mod button click
       addBtn.onclick = () => {
         const id = modUserIdInput.value.trim();
         if (!id) return alert("Please enter a User ID.");
@@ -198,6 +229,7 @@
         }).then(() => loadGuildDashboard(guild));
       };
 
+      // Remove mod button click
       removeBtn.onclick = () => {
         const id = modUserIdInput.value.trim();
         if (!id) return alert("Please enter a User ID.");
@@ -212,27 +244,43 @@
       };
     }
 
+    // On page load: parse token, clear URL hash, and load dashboard
     window.onload = async () => {
-      // Read access_token from URL hash
       const hash = window.location.hash.substring(1);
       const params = new URLSearchParams(hash);
       accessToken = params.get("access_token");
 
+      // Clear token from URL to prevent leaks
       if (accessToken) {
-        // Clear token from URL to avoid leaks
-        history.replaceState(null, null, window.location.pathname + window.location.search);
+        if (window.history && window.history.replaceState) {
+          window.history.replaceState(null, null, window.location.pathname + window.location.search);
+        } else {
+          window.location.hash = "";
+        }
+      }
 
+      if (accessToken) {
         document.getElementById("authSection").classList.add("hidden");
         document.getElementById("dashboard").classList.remove("hidden");
 
+        const loadingMessage = document.getElementById("loadingMessage");
+        const errorMessage = document.getElementById("errorMessage");
+
         try {
+          show(loadingMessage);
+          show(errorMessage, false);
+
           const [userGuilds, botGuildIds] = await Promise.all([
             fetchUserGuilds(),
             fetchBotGuilds(),
           ]);
+          show(loadingMessage, false);
+
           renderGuilds(userGuilds, botGuildIds);
         } catch (err) {
-          alert("Failed to load guilds. Please try again.");
+          show(loadingMessage, false);
+          errorMessage.textContent = "Failed to load guilds. Please try again.";
+          show(errorMessage);
           console.error(err);
         }
       }
@@ -240,4 +288,3 @@
   </script>
 </body>
 </html>
-
